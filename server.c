@@ -1,31 +1,43 @@
-// Server side C/C++ program to demonstrate Socket
-// programming
 #include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <stdbool.h>
 
-char *equipmentSensors[4][4];
+int socket_, server_fd;
 
+/*Estrutura global para armazenar equipamentos e seus sensores.
+As linhas representam o equipamento e as colunas representam sensores. */
+bool equipmentSensors[4][4];
+int databaseSize = 0;
+int databaseLimit = 15;
+
+//Metodo para remover o caractere newline e manter a mensagem limpa 
+void removeNewLine(char *message){
+	char *pos;
+	if ((pos=strchr(message, '\n')) != NULL)
+		*pos = '\0';
+
+}
+
+//Metodo para estabelecer conexao com cliente
 int connectToClient(const char *protocol, int PORT){
 
-	int server_fd, new_socket, opt = 1;
+	int opt = 1;
 
 	if (!strcmp(protocol, "v4")){
 
 		struct sockaddr_in address;
 		int addrlen = sizeof(address);
 
-		// Creating socket file descriptor
 		if ((server_fd = socket(AF_INET, SOCK_STREAM, 0))
 			== 0) {
 			perror("socket failed");
 			exit(EXIT_FAILURE);
 		}
 
-		// Forcefully attaching socket to the port 8080
 		if (setsockopt(server_fd, SOL_SOCKET,
 					SO_REUSEADDR, (char *)&opt,
 					sizeof(opt)) < 0) {
@@ -36,9 +48,6 @@ int connectToClient(const char *protocol, int PORT){
 		address.sin_addr.s_addr = INADDR_ANY;
 		address.sin_port = htons(PORT);
 
-		printf("Waiting client.\n");
-
-		// Forcefully attaching socket to the port 8080
 		if (bind(server_fd, (struct sockaddr*)&address,
 				sizeof(address))
 			< 0) {
@@ -49,7 +58,7 @@ int connectToClient(const char *protocol, int PORT){
 			perror("listen");
 			exit(EXIT_FAILURE);
 		}
-		if ((new_socket
+		if ((socket_
 			= accept(server_fd, (struct sockaddr*)&address,
 					(socklen_t*)&addrlen))
 			< 0) {
@@ -57,7 +66,7 @@ int connectToClient(const char *protocol, int PORT){
 			exit(EXIT_FAILURE);
 		}
 
-		return new_socket;
+		return socket_;
 
 	}
 
@@ -66,14 +75,13 @@ int connectToClient(const char *protocol, int PORT){
 		struct sockaddr_in6 address;
 		int addrlen = sizeof(address);
 
-		// Creating socket file descriptor
 		if ((server_fd = socket(AF_INET6, SOCK_STREAM, 0))
 			== 0) {
 			perror("socket failed");
 			exit(EXIT_FAILURE);
 		}
 
-		// Forcefully attaching socket to the port 8080
+
 		if (setsockopt(server_fd, SOL_SOCKET,
 					SO_REUSEADDR, (char *)&opt,
 					sizeof(opt)) < 0) {
@@ -84,9 +92,7 @@ int connectToClient(const char *protocol, int PORT){
 		address.sin6_addr = in6addr_any;
 		address.sin6_port = htons(PORT);
 
-		printf("Waiting client.\n");
 
-		// Forcefully attaching socket to the port 8080
 		if (bind(server_fd, (struct sockaddr*)&address,
 				sizeof(address))
 			< 0) {
@@ -97,7 +103,7 @@ int connectToClient(const char *protocol, int PORT){
 			perror("listen");
 			exit(EXIT_FAILURE);
 		}
-		if ((new_socket
+		if ((socket_
 			= accept(server_fd, (struct sockaddr*)&address,
 					(socklen_t*)&addrlen))
 			< 0) {
@@ -105,21 +111,41 @@ int connectToClient(const char *protocol, int PORT){
 			exit(EXIT_FAILURE);
 		}
 
-		return new_socket;
+		return socket_;
 
 	}
 
 
 	else{
-		printf("Protocolo nao reconhecido.\n");
-		exit(1);
+		printf("Unknown protocol.\n");
+		exit(EXIT_FAILURE);
 	}
 
 }
 
+/*Metodo que retorna o ID do sensor ou equipamento para ser utilizado como
+indexador na matriz*/
+int getIntId(char *ID){
+
+	if (!strcmp(ID, "01")) return 0;
+	else if (!strcmp(ID, "02")) return 1;
+	else if (!strcmp(ID, "03")) return 2;
+	else if (!strcmp(ID, "04")) return 3;
+	else return -1;
+
+}
+
+//Retorna um numero aleatorio
+double getRandom(){
+	double div = RAND_MAX/10;
+	return rand()/div;
+}
+
+//Executa os comandos especificados
 void performAction(char *command){
 
 	char * action = strtok(command, " ");
+	removeNewLine(action);
 
 	if (!strcmp(action, "add")){
 
@@ -127,9 +153,115 @@ void performAction(char *command){
 
 		char * sensor = strtok(NULL, " ");
 		sensor = strtok(NULL, " ");		//removendo string 'sensor' do comando
+		int countSensorAdded = 0;
 
 		int i = 0;
 
+		//loop para capturar todos os sensores descritos no comando
+		while((sensor != NULL)){
+
+			if (!strcmp(sensor, "in")) break;
+
+			sensors[i] = sensor;
+			i++;
+			countSensorAdded ++;
+
+			sensor = strtok(NULL, " ");
+		}
+
+		//for usado para verficar se todos os sensores existem	
+		for (int j = 0; j < i; j++){	
+			if (getIntId(sensors[j]) < 0){
+				printf("invalid sensor\n");
+				return ;
+			}
+		}
+
+		if (databaseSize + countSensorAdded > databaseLimit){
+			printf("limit exceeded\n");
+			return ;
+		}
+		else databaseSize += countSensorAdded;
+
+
+		char *equipmentId = strtok(NULL, " ");
+		removeNewLine(equipmentId);
+		int equipmentIdInt = getIntId(equipmentId);
+		if (equipmentIdInt < 0){
+			printf("invalid equipment\n");
+			return ;
+		}
+
+
+		char *sensorsAlreadyExists[4];
+		int k = 0;
+		
+		//loop para executar a acao e imprimir os resultados
+		printf("sensor ");
+		int sensorsAdded = 0;
+		for (int j = 0; j < i; j++){
+
+			int sensorId = getIntId(sensors[j]);
+
+			if (equipmentSensors[equipmentIdInt][sensorId]){
+				sensorsAlreadyExists[k] = sensors[j];
+				k ++;
+			}
+			else {
+				equipmentSensors[equipmentIdInt][sensorId] = true;
+				printf("%s ", sensors[j]);
+				sensorsAdded ++;
+			}
+		}
+		if (sensorsAdded > 0) printf("added ");
+		if (k > 0){
+			for (int j = 0; j < k; j++){
+				printf("%s ", sensorsAlreadyExists[j]);
+			}
+			printf("already exists in %s\n", equipmentId);
+		}
+		else{
+			printf("\n");
+		}
+
+	}
+
+	else if (!strcmp(action, "list")){
+
+		char *equipmentId = strtok(NULL, " ");
+		equipmentId = strtok(NULL, " ");
+		equipmentId = strtok(NULL, " ");
+
+		removeNewLine(equipmentId);
+		int equipmentIdInt = getIntId(equipmentId);
+		if (equipmentIdInt < 0){
+			printf("invalid equipment\n");
+			return ;
+		}
+
+		bool none = true;
+
+		//loop para executar a acao e imprimir os resultados
+		for (int i = 0; i < 4; i++){
+			if (equipmentSensors[equipmentIdInt][i]){
+				printf("0%d ", i+1);
+				none = false;
+			}
+			
+		}
+		if (none) printf("none\n");
+		else printf("\n");
+
+	}
+
+	else if (!strcmp(action, "read")){
+
+		char *sensors[4];
+
+		char *sensor = strtok(NULL, " ");
+		int i = 0;
+
+		//loop para capturar todos os sensores descritos no comando
 		while((sensor != NULL)){
 
 			if (!strcmp(sensor, "in")) break;
@@ -140,42 +272,133 @@ void performAction(char *command){
 			sensor = strtok(NULL, " ");
 		}
 
+		for (int j = 0; j < i; j++){	//for usado para verficar se todos os sensores existem
+			if (getIntId(sensors[j]) < 0){
+				printf("invalid sensor\n");
+				return ;
+			}
+		}
+
+		char *sensorsNotIntalled[4];
+		int countUninstalledSensors = 0;
+		int countInstalledSensors = 0;
 
 		char *equipmentId = strtok(NULL, " ");
-		printf("Equipment id: '%s'\n", equipmentId);
+		removeNewLine(equipmentId);
+		int equipmentIdInt = getIntId(equipmentId);
+		if (equipmentIdInt < 0){
+			printf("invalid equipment\n");
+			return ;
+		}
 
-		int equipmentIdInt;
+		//loop para executar a acao e imprimir os resultados
+		for (int j = 0; j < i; j++){
+			if (equipmentSensors[equipmentIdInt][getIntId(sensors[j])]){
+				printf("%.2lf ", getRandom());
+				countInstalledSensors ++;
+			} else {
+				sensorsNotIntalled[countUninstalledSensors] = sensors[j];
+				countUninstalledSensors ++;
+			}
+		}
 
-		if (!strcmp(equipmentId, "01")) equipmentIdInt = 0;
-		if (!strcmp(equipmentId, "02")) equipmentIdInt = 1;
-		if (!strcmp(equipmentId, "03")) equipmentIdInt = 2;
-		if (!strcmp(equipmentId, "04")) equipmentIdInt = 3;
+		if (countUninstalledSensors > 0){
+			if (countInstalledSensors > 0) printf("and ");
+			for (int j = 0; j < countUninstalledSensors; j++){
+				printf("%s ", sensorsNotIntalled[j]);
+			}
+			printf("not installed\n");
+		}
+		else{
+			printf("\n");
+		}
 		
-		printf("Sensors: ");
+		
+	}
+
+	else if (!strcmp(action, "remove")){
+
+		char *sensors[4];
+
+		char * sensor = strtok(NULL, " ");
+		sensor = strtok(NULL, " ");		//removendo string 'sensor' do comando
+
+		int i = 0;
+
+		//loop para capturar todos os sensores descritos no comando
+		while((sensor != NULL)){
+
+			if (!strcmp(sensor, "in")) break;
+
+			sensors[i] = sensor;
+			i++;
+
+			sensor = strtok(NULL, " ");
+		}
+
+		//for usado para verficar se todos os sensores existem
+		for (int j = 0; j < i; j++){	
+			if (getIntId(sensors[j]) < 0){
+				printf("invalid sensor\n");
+				return ;
+			}
+		}
+
+
+		char *equipmentId = strtok(NULL, " ");
+		removeNewLine(equipmentId);
+		int equipmentIdInt = getIntId(equipmentId);
+		if (equipmentIdInt < 0){
+			printf("invalid equipment\n");
+			return ;
+		}
+
+		char *sensorsDoeNotExist[4];
+		int k = 0;
+		int countRemovedSensors = 0;
+
+		//loop para executar a acao e imprimir os resultados
+		printf("sensor ");
 		for (int j = 0; j < i; j++){
 
-			printf("'%s' ", sensors[j]);
-			equipmentSensors[equipmentIdInt][j] = sensors[j];
+			int sensorId = getIntId(sensors[j]);
+
+			if (equipmentSensors[equipmentIdInt][sensorId]){
+				printf("%s ", sensors[j]);
+				countRemovedSensors ++;
+				databaseSize --;
+				equipmentSensors[equipmentIdInt][sensorId] = false;
+			}
+			else {
+				sensorsDoeNotExist[k]= sensors[j];
+				k++;
+			}
 		}
-		printf("\n");
+		if (countRemovedSensors > 0) printf("removed ");
+		if (k > 0){
+			for (int j = 0; j < k; j++){
+				printf("%s ", sensorsDoeNotExist[j]);
+			}
+			printf("does not exists in %s\n", equipmentId);
 
-		// printf("Sensors in equipment %d: ", equipmentIdInt + 1);
-		// for (int j = 0; j < i; j++){
-
-		// 	printf("'%s' ", equipmentSensors[equipmentIdInt][j]);
-		// }
-		// printf("\n");
+		}
+		else{
+			printf("\n");
+		}
 
 	}
 
+	else if (!strcmp(action, "kill")){
+		close(server_fd);
 
-// 	while( action != NULL ) {
-//       printf( " %s\n", action ); //printing each token
-//       action = strtok(NULL, " ");
-//    }
+		exit(EXIT_SUCCESS);
+	}
 
-// 	// printf("Action: %s\n", action);
-// 	printf("Command after strtok: %s\n", command);
+	else{
+		close(server_fd);
+
+		exit(EXIT_SUCCESS);
+	}
 
 }
 
@@ -189,30 +412,20 @@ int main(int argc, char const* argv[]){
 	char* hello = "Hello from server";
 	char command[1024] = { 0 };
 
-	int new_socket = connectToClient(protocol, PORT);
-	
-	printf("Client conected.\n");
+	socket_ = connectToClient(protocol, PORT);
 
+	//loop utilizado para receber multiplas mensagens
 	while(1){
 
-		valread = read(new_socket, command, 1024);
-		printf("'%s'\n", command);
-		send(new_socket, hello, strlen(hello), 0);
+		//Metodo send eh necessario para desconectar o cliente
+		send(socket_, hello, strlen(hello), 0);
+
+		valread = read(socket_, command, 1024);
 
 		performAction(command);
-
-
-		printf("Sensors in equipment 3: ");
-		for (int j = 0; j < 3; j++){
-
-			printf("'%s' ", equipmentSensors[3][j]);
-		}
-		printf("\n");
-
-
-		// printf("Hello message sent\n");
-
 	}
-
+	
+	free(hello);
+	
 	return 0;
 }
